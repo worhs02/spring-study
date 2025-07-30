@@ -1,0 +1,91 @@
+name: Divary CI/CD
+
+on:
+  push:
+    branches: [develop, main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate application-prod.yml
+        run: |
+          mkdir -p ./src/main/resources
+          echo "${{ secrets.APPLICATION_PROD_YML }}" > ./src/main/resources/application-prod.yml
+        shell: bash
+
+      - name: Grant permission to gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build -x test
+
+      - name: Compress JAR with tar.gz # jar 파일 압축
+        run: |
+          mkdir -p package
+          cp build/libs/*.jar package/
+          tar -czf divary-app.tar.gz -C package .
+        shell: bash
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: divary-artifact
+          path: divary-app.tar.gz # 압축된 tar.gz 파일만 업로드
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: divary-artifact
+          path: ./deploy-package
+
+      - name: Deploy to EC2
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "$EC2_SSH_KEY" > private_key.pem
+          chmod 600 private_key.pem
+
+          tar_file=deploy-package/divary-app.tar.gz
+
+          # tar.gz 파일을 EC2로 전송
+          scp -i private_key.pem -o StrictHostKeyChecking=no "$tar_file" $EC2_USERNAME@$EC2_HOST:/home/$EC2_USERNAME/divary-app.tar.gz
+
+          # EC2에서 압축 해제 후 실행
+          ssh -i private_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST << EOF
+            set -e
+            cd /home/ubuntu
+
+            rm -rf divary-app
+            mkdir -p divary-app
+            tar -xzf divary-app.tar.gz -C divary-app
+
+             # systemd 재시작
+            sudo systemctl daemon-reload
+            sudo systemctl restart divary
+            sudo systemctl is-active divary
+
+          EOF
+
+          rm -f private_key.pem
