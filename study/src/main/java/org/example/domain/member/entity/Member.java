@@ -22,4 +22,6 @@ public class Member extends BaseEntity {
 
     @OneToMany(mappedBy = "member") //Order 테이블에 있는 멤버에 매핑되었다는 걸 의미
     private List<Order> orders = new ArrayList<>();
+
+
 }

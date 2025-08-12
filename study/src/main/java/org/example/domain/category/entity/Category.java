@@ -1,6 +1,7 @@
 package org.example.domain.category.entity;
 
 import jakarta.persistence.*;
+import lombok.Setter;
 import org.example.common.entity.BaseEntity;
 import org.example.domain.item.entity.Item;
 
@@ -8,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
+@Setter
 public class Category extends BaseEntity {
 
     private String name;
@@ -25,4 +27,9 @@ public class Category extends BaseEntity {
 
     @OneToMany(mappedBy = "parent")
     private List<Category> child = new ArrayList<>();
+
+    public void addChildCategory(Category child){
+        this.child.add(child);
+        child.setParent(this);
+    }
 }
